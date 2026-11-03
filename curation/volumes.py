@@ -1,5 +1,5 @@
 """Image input of the image model: N evenly spaced slices of an image group, rescaled, unified to
-one matrix, z-normalised, resampled to H x W, cached as .npy (cache key: md5 of key, N, mode)."""
+one matrix, z-normalised, resampled to H x W, cached as .npy (cache key: md5 of key, N, size)."""
 from __future__ import annotations
 
 import hashlib
@@ -118,7 +118,7 @@ class VolumeLoader:
     def _cache_path(self, key: str) -> Optional[str]:
         if not self.cache_dir:
             return None
-        h = hashlib.md5(f"{key}_{self.n_slices}_resample".encode()).hexdigest()
+        h = hashlib.md5(f"{key}_{self.n_slices}_{self.size}".encode()).hexdigest()
         return os.path.join(self.cache_dir, h + ".npy")
 
     def __call__(self, key: str) -> Optional[np.ndarray]:

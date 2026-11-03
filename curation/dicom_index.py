@@ -310,8 +310,5 @@ class Index:
     def keys(self) -> list[str]:
         return list(self._data.keys())
 
-    def series(self) -> list[str]:
-        return list(self._groups.keys())
-
     def __len__(self) -> int:
         return len(self._data)

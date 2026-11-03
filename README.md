@@ -29,19 +29,75 @@ magnitude and phase images (e.g. SWI), several echoes (PD + T2) or an embedded l
 splits such series into image groups (`curation/dicom_index.py: image_group`), each labelled
 separately; the "main" group (magnitude, longest echo) carries the series label.
 
-## Quick start
+## Running it
+
+**Requirements.** Python 3.10 or newer, a CUDA GPU (training, evaluation and prediction run the
+image model on the GPU), and [dcm2niix](https://github.com/rordenlab/dcm2niix) on `PATH` for the
+NIfTI conversion.
 
 ```bash
-pip install -r requirements.txt          # plus dcm2niix on PATH for conversion
-cp config.example.yaml config.yaml       # set input.root, labels, tasks
-python scripts/build_index.py --config config.yaml
-python scripts/evaluate.py   --config config.yaml --task body --folds 5      # optional: how good is it on your data?
-python scripts/train.py      --config config.yaml
-python scripts/convert.py    --config config.yaml --out nifti/
-python scripts/predict.py    --config config.yaml --out results/ --series-files nifti/series_files.csv
+pip install -r requirements.txt
 ```
 
-Training needs a CUDA GPU. Volumes are cached as `.npy` under `work_dir/npy_cache`.
+**1. Configure.** Copy the example and set at least `input` (where the DICOM data are) and
+`labels` (your label CSVs, format below):
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+```yaml
+input:
+  kind: zip              # one ZIP per study, or "folder": one sub-folder per study
+  root: /path/to/dicom
+labels:
+  expert: labels/expert.csv
+```
+
+The example config labels body part (BRAIN / REST) and then the sequence type of brain series;
+keep it as it is or define your own tasks (see below).
+
+**2. Index the DICOM data.** Reads every header once and splits series into image groups. Writes
+`work_dir/index.pkl`.
+
+```bash
+python scripts/build_index.py --config config.yaml
+```
+
+**3. Optional: evaluate on your data.** Patient-level cross-validation, optionally with a held-out
+test set (one patient id per line). It suggests the fusion weight and the confidence threshold for
+an error budget; copy them into the config.
+
+```bash
+python scripts/evaluate.py --config config.yaml --task body --folds 5
+python scripts/evaluate.py --config config.yaml --task sequence --folds 5 --test-patients test_patients.txt
+```
+
+**4. Train** both models of every task on all labelled series (`work_dir/models/<task>/`):
+
+```bash
+python scripts/train.py --config config.yaml
+```
+
+**5. Convert to NIfTI** (optional, needed for labelled NIfTI output):
+
+```bash
+python scripts/convert.py --config config.yaml --out nifti/
+```
+
+**6. Predict** every image group. Writes `results/predictions.csv` and `results/review_<task>.csv`;
+with `--series-files`, also the labelled NIfTIs with their sidecars under `results/nifti/`.
+
+```bash
+python scripts/predict.py --config config.yaml --out results/ --series-files nifti/series_files.csv
+```
+
+**7. Review and retrain.** Fill in the label column of `review_<task>.csv`, add the file as a label
+source (`labels: {reviewed: results/review_sequence.csv}`), name it in the task's `train_labels`,
+and run steps 4 and 6 again.
+
+Volumes are cached as `.npy` under `work_dir/npy_cache`, so later runs are much faster. All steps
+log counts only.
 
 ## Label files
 

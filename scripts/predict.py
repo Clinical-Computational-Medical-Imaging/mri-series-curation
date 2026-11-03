@@ -8,8 +8,10 @@ Tasks run in config order; a task with only_where (e.g. sequence only on BRAIN) 
 whose parent label is that class, plus those where the parent was uncertain. Writes
   predictions.csv        one row per image group: key, series, study, group, localizer, and per
                          task: label, confidence, source (rule / model / model+mask), reason, uncertain
-  review_<task>.csv      uncertain series (main group): fill the empty <column> with your label
-                         and add the file as a label source, e.g. labels: {reviewed: review_<task>.csv}
+  review_<task>.csv      uncertain series (main group) without a human label for the task: fill the
+                         empty <column> with your label and add the file as a label source, e.g.
+                         labels: {reviewed: review_<task>.csv}; a task with only_where also gets the
+                         parent's label (human where known, else predicted: correct it if wrong)
 With --series-files (scripts/convert.py): every labelled NIfTI is copied to
   <out>/nifti/<patient>/<study date>_<study>/<LABEL of the last task>_<file>.nii.gz
 with its converter sidecar, enriched with plane, derived / complex flags and the labels of all tasks.
@@ -26,6 +28,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from curation.config import load_config, paths  # noqa: E402
 from curation.dicom_index import Index  # noqa: E402
+from curation.labels import read_labels  # noqa: E402
 from curation.localizer import is_localizer  # noqa: E402
 from curation.output import safe_name, write_sidecar  # noqa: E402
 from curation.pipeline import label_keys, model_dir  # noqa: E402
@@ -54,14 +57,26 @@ def predict_all(cfg: dict, index) -> pd.DataFrame:
 
 
 def review_files(cfg: dict, index, df: pd.DataFrame, out: Path) -> None:
+    """Uncertain series without a human label for the task. A task with only_where also gets the
+    parent column: the human label where one exists, else the prediction (correct it if wrong)."""
     pcol = cfg["patient_column"]
+    sources = [s for s, p in cfg["labels"].items() if os.path.exists(p)]
+    known = read_labels(cfg, sources).set_index("series_instance_uid") if sources else pd.DataFrame()
     for name, task in cfg["tasks"].items():
         u = df[df["is_main"] & (df[f"{name}_uncertain"] == True)]  # noqa: E712
+        if task["column"] in known.columns:
+            u = u[~u["series_uid"].map(known[task["column"]].dropna().to_dict()).notna()]
         r = pd.DataFrame({"series_instance_uid": u["series_uid"],
                           pcol: [index.get(k).get("patient_id", "") for k in u["key"]],
                           "series_description": [index.get(k).get("series_description", "") for k in u["key"]],
                           f"{name}_predicted": u[name], f"{name}_confidence": u[f"{name}_confidence"].round(3),
                           task["column"]: ""})
+        if task["only_where"]:      # so that only_where keeps the row when the file is used as a label source
+            (parent, _), = task["only_where"].items()
+            parent_col = cfg["tasks"][parent]["column"]
+            human = (u["series_uid"].map(known[parent_col].dropna().to_dict())
+                     if parent_col in known.columns else pd.Series(index=u.index, dtype=object))
+            r[parent_col] = human.fillna(u[parent]).to_numpy()
         r.to_csv(out / f"review_{name}.csv", index=False)
         logging.info("review_%s.csv: %d series", name, len(r))
 
