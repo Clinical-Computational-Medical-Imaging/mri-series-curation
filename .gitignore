@@ -1,0 +1,19 @@
+# data, caches, models, outputs: never commit
+work/
+labels/
+results/
+nifti/
+*.csv
+*.pkl
+*.npy
+*.pt
+*.joblib
+*.nii
+*.nii.gz
+*.dcm
+*.zip
+config.yaml
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+logs/

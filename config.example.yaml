@@ -1,0 +1,81 @@
+# Example configuration: the setup of our paediatric brain tumour archive (body part, then
+# sequence type of brain series). Copy to config.yaml and adapt. Relative paths are relative
+# to this file.
+
+input:
+  kind: zip                 # zip: one ZIP per study | folder: one sub-folder per study
+  root: /path/to/dicom      # scanned recursively inside each study; file names do not matter
+
+work_dir: work              # index.pkl, npy_cache/, models/, evaluation/
+
+# Label sources: name -> CSV (series_instance_uid, patient_id, one column per task; see README).
+# Later sources win per series and column.
+labels:
+  expert: labels/expert.csv
+  reviewed: labels/reviewed.csv     # e.g. labels from review_<task>.csv files
+
+patient_column: patient_id  # keeps all series of a patient on one side of every split
+seed: 42
+workers: 8
+
+localizer:                  # localizers / scouts / screenshots: never trained, never labelled
+  max_slices: 5             # at most this many images ...
+  max_matrix: 256           # ... and a matrix of at most this size
+  max_slices_without_matrix: 3
+  keywords: [localizer, localiser, scout, survey, "3-plane loc", "screen save", screensave, "medical report"]
+
+volume:
+  n_slices: 16              # slices sampled evenly through each image group
+  size: 224                 # resampled matrix
+
+image_model:
+  backbone: convnext_tiny   # or efficientnet_b2
+  epochs: 60
+  batch_size: 16
+  lr: 3.0e-4
+  patience: 15              # early stopping on validation macro-F1
+  val_fraction: 0.2         # patient share for early stopping and temperature scaling
+  workers: 8
+
+meta_model:
+  text_dim: 48              # LSA dimension of the description text
+
+tasks:                      # run in this order
+  body:
+    column: body_part
+    classes: [BRAIN, REST]
+    map: {SPINE: REST, OTHER: REST}       # raw label -> class
+    loss: {type: ce, label_smoothing: 0.1}
+    class_weight_cap: 5
+    balance_sampler: true                 # oversample rare raw labels (SPINE, OTHER inside REST)
+    group_labels: {localizer: drop, phase: inherit, other_echo: inherit}
+    rules: false
+    train_labels:
+      image: [expert, reviewed]
+      meta: [expert]
+    eval_labels: [expert]
+    metric: balanced_accuracy             # for paired tests and the fusion weight; suits two imbalanced classes
+    fusion_weight: 0.7                    # p_image^w * p_meta^(1-w)
+    threshold: 0.95                       # below: uncertain (and the sequence task still runs)
+
+  sequence:
+    column: sequence_type
+    classes: [T1, T1C, T2, FLAIR, DWI, ADC, SWI, T2STAR, OTHER]
+    only_where: {body: BRAIN}             # trained on BRAIN series; predicted where body = BRAIN or uncertain
+    loss: {type: focal, gamma: 3.0, label_smoothing: 0.1}
+    class_weight_cap: 10
+    group_labels:
+      localizer: drop
+      phase: OTHER
+      other_echo: {when_label: T2, te_below: 60, label: OTHER}   # PD echo of a PD+T2 series
+    rules:
+      enabled: true
+      disable: []                         # rule ids, see curation/rules.py
+      rename: {}                          # target classes of the rules in your scheme, e.g. {OTHER: MISC}
+    train_labels:
+      image: [expert, reviewed]
+      meta: [expert, reviewed]
+    eval_labels: [expert]
+    metric: macro_f1
+    fusion_weight: 0.7
+    threshold: 0.925                      # 3 % error budget on our data (paper); recompute with evaluate.py

@@ -1,0 +1,13 @@
+numpy
+pandas
+pydicom>=2.4
+nibabel
+torch>=2.1
+torchvision>=0.16
+scikit-learn>=1.3
+joblib
+pyyaml
+tqdm
+threadpoolctl
+# optional, for compressed DICOM: pylibjpeg pylibjpeg-libjpeg pylibjpeg-openjpeg
+# conversion: dcm2niix on PATH
